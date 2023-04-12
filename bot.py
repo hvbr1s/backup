@@ -66,6 +66,13 @@ vectordb = Pinecone(
     text_key="text"
 )
 
+def embed_with_retry(embeddings, input, engine):
+    if not input or not isinstance(input, list) or not all(isinstance(i, str) and i.strip() for i in input):
+        raise ValueError("Invalid input format. 'input' should be a non-empty list of non-empty strings.")
+
+    return _completion_with_retry(**kwargs)
+
+
 # Initialize QA retrieval object
 
 retriever = RetrievalQA.from_chain_type(
@@ -78,7 +85,8 @@ cal = Tool(
     name="Crypto Asset List",
     func=retriever.run,
     description=f"""
-        Always consult this list when asked if a specific coin or token is supported by Ledger Live. 
+        Always consult this list when asked if a specific coin or token is supported or secured by Ledger Live.
+        If the question is about supported coins, tokens, cryptos or assets but doesn't specify which one, your action_input should be "ask the customer for clarifications" and you should return an answer asking for clarifications. 
         Each row is organized as follow: |network| |token symbol| |token name| 
         If a coin or token is on the list, it is supported in Ledger Live.
         Note that the items on the list are not case-sensitive, so "BTC" and "btc" are considered identical.
@@ -96,17 +104,6 @@ def create_tool(name, description, index):
         func=lambda q: index.query(q),
         description=description
     )
-
-# # Prepare Recovery Tool
-# UnstructuredReaderClass = download_loader("UnstructuredReader")
-# recovery_reader = UnstructuredReaderClass()
-# recovery_documents = recovery_reader.load_data(file=Path('/home/dan/langchain_projects/gptGoogle/documents/recovery.txt'))
-# recovery_index = GPTSimpleVectorIndex.from_documents(recovery_documents)
-# recovery = create_tool("Recovery", """
-#                             When asked a question about a reco
-
-#                         """
-#                         , recovery_index)
 
 # Prepare toolbox
 serpapi_tool = load_tools(["serpapi"])[0]
@@ -127,7 +124,6 @@ conversational_agent = initialize_agent(
     agent='chat-conversational-react-description', 
     tools=tools, 
     llm=llm,
-    verbose=True,
     max_iterations=2,
     early_stopping_method="generate",
     memory=memory,
@@ -135,6 +131,9 @@ conversational_agent = initialize_agent(
 
 sys_msg = """You are a friendly, talkative and helpful customer support agent with Ledger, the crypto hardware wallet company. 
     Anwswer all the questions the best you can. 
+    Your utmost mission is to keep the user's crypto assets safe and to protect them against scams. 
+    Users should never under any circumstances share their 24-word recovery phrase with anyone, including Ledger or Ledger employees. 
+    Users should never type their recovery phrase into any apps including Ledger Live
     If you do not know the answer to a question, you truthfully admit you don't know and ask for clarifications. 
     """
 
@@ -190,11 +189,16 @@ def gpt():
 @app.route('/api', methods=['POST'])
 def react_description():
     print(request.json)
-    user_input = request.json.get('user_input')  
-    response = conversational_agent(user_input)
-    output_value = response.get("output") or response.get("action_input")
+    user_input = request.json.get('user_input')
+    try:
+        response = conversational_agent(user_input)
+        output_value = response.get("output") or response.get("action_input")
+        print(output_value)
+        return jsonify({'output': output_value})
+    except ValueError as e:
+        print(e)
+        return jsonify({'output': 'Sorry, could you please repeat the question?'})
 
-    return jsonify({'output': output_value})
 
 ADDRESS = "0xb022C9c672592c274397557556955eE968052969"
 ABI = [{"inputs":[{"internalType":"string","name":"_name","type":"string"},{"internalType":"string","name":"_symbol","type":"string"}],"stateMutability":"nonpayable","type":"constructor"},{"anonymous":False,"inputs":[{"indexed":True,"internalType":"address","name":"owner","type":"address"},{"indexed":True,"internalType":"address","name":"approved","type":"address"},{"indexed":True,"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"Approval","type":"event"},{"anonymous":False,"inputs":[{"indexed":True,"internalType":"address","name":"owner","type":"address"},{"indexed":True,"internalType":"address","name":"operator","type":"address"},{"indexed":False,"internalType":"bool","name":"approved","type":"bool"}],"name":"ApprovalForAll","type":"event"},{"anonymous":False,"inputs":[{"indexed":True,"internalType":"address","name":"previousOwner","type":"address"},{"indexed":True,"internalType":"address","name":"newOwner","type":"address"}],"name":"OwnershipTransferred","type":"event"},{"anonymous":False,"inputs":[{"indexed":True,"internalType":"address","name":"from","type":"address"},{"indexed":True,"internalType":"address","name":"to","type":"address"},{"indexed":True,"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"Transfer","type":"event"},{"inputs":[{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"approve","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"owner","type":"address"}],"name":"balanceOf","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"getApproved","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"address","name":"operator","type":"address"}],"name":"isApprovedForAll","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"name","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"owner","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"ownerOf","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"renounceOwnership","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"to","type":"address"},{"internalType":"string","name":"tokenURI","type":"string"}],"name":"safeMint","outputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"from","type":"address"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"safeTransferFrom","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"from","type":"address"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"tokenId","type":"uint256"},{"internalType":"bytes","name":"_data","type":"bytes"}],"name":"safeTransferFrom","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"operator","type":"address"},{"internalType":"bool","name":"approved","type":"bool"}],"name":"setApprovalForAll","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"bytes4","name":"interfaceId","type":"bytes4"}],"name":"supportsInterface","outputs":[{"internalType":"bool","name":"","type":"bool"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"symbol","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"index","type":"uint256"}],"name":"tokenByIndex","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"owner","type":"address"},{"internalType":"uint256","name":"index","type":"uint256"}],"name":"tokenOfOwnerByIndex","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"tokenURI","outputs":[{"internalType":"string","name":"","type":"string"}],"stateMutability":"view","type":"function"},{"inputs":[],"name":"totalSupply","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},{"inputs":[{"internalType":"address","name":"from","type":"address"},{"internalType":"address","name":"to","type":"address"},{"internalType":"uint256","name":"tokenId","type":"uint256"}],"name":"transferFrom","outputs":[],"stateMutability":"nonpayable","type":"function"},{"inputs":[{"internalType":"address","name":"newOwner","type":"address"}],"name":"transferOwnership","outputs":[],"stateMutability":"nonpayable","type":"function"}]
